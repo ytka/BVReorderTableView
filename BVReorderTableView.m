@@ -35,8 +35,7 @@
 @property (nonatomic, strong) UIImageView *draggingView;
 @property (nonatomic, retain) id savedObject;
 
-@property (nonatomic, assign) CGPoint previousLocation;
-
+@property (nonatomic, assign) CGPoint previousSuperviewLocation;
 
 - (void)initialize;
 - (void)longPress:(UILongPressGestureRecognizer *)gesture;
@@ -102,14 +101,9 @@
     return shouldBegin;
 }
 
-- (BOOL)locationIsWithinBounds:(CGPoint)location
-{
-    return (location.y >= self.draggingView.bounds.size.height / 2
-            && location.y <= self.contentSize.height - self.draggingView.bounds.size.height / 2);
-}
-
 - (CGPoint)locationWithinBounds:(CGPoint)location
 {
+    location = [self convertPoint:location fromView:self.superview];
     if (location.y < self.draggingView.bounds.size.height / 2)
     {
         location.y = self.draggingView.bounds.size.height / 2;
@@ -118,14 +112,16 @@
     {
         location.y = self.contentSize.height - self.draggingView.bounds.size.height / 2;
     }
+    location = [self convertPoint:location toView:self.superview];
     return location;
 }
 
 - (void)longPress:(UILongPressGestureRecognizer *)gesture {
-    
     CGPoint location = [gesture locationInView:self];
-    CGPoint locationDelta = CGPointMake(location.x - self.previousLocation.x, location.y - self.previousLocation.y);
-    self.previousLocation = location;
+    CGPoint superviewLocation = [gesture locationInView:self.superview];
+    CGPoint locationDelta = CGPointMake(superviewLocation.x - self.previousSuperviewLocation.x,
+                                        superviewLocation.y - self.previousSuperviewLocation.y);
+    self.previousSuperviewLocation = superviewLocation;
     
     NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
     
@@ -161,9 +157,10 @@
         // create and image view that we will drag around the screen
         if (!self.draggingView) {
             self.draggingView = [[UIImageView alloc] initWithImage:cellImage];
-            [self addSubview:self.draggingView];
+            [self.superview addSubview:self.draggingView];
             CGRect rect = [self rectForRowAtIndexPath:indexPath];
-            self.draggingView.frame = CGRectOffset(self.draggingView.bounds, rect.origin.x, rect.origin.y);
+            rect = [self convertRect:rect toView:self.superview];
+            self.draggingView.frame = rect;
             
             // add drop shadow to image and lower opacity
             self.draggingView.layer.masksToBounds = NO;
@@ -196,7 +193,6 @@
                                                     userInfo:userInfo
                                                      repeats:YES];
         [[NSRunLoop mainRunLoop] addTimer:self.scrollingTimer forMode:NSDefaultRunLoopMode];
-        
     }
     // dragging
     else if (gesture.state == UIGestureRecognizerStateChanged) {
@@ -205,7 +201,6 @@
         // update position of the drag view
         // don't let it go past the top or the bottom too far
         newLocation = [self locationWithinBounds:newLocation];
-        // NSLog(@"Update: %f %f", location.y, self.draggingView.center.y);
         self.draggingView.center = newLocation;
         
         CGRect rect = self.bounds;
@@ -246,8 +241,9 @@
         [UIView animateWithDuration:0.2
                          animations:^{
                              CGRect rect = [self rectForRowAtIndexPath:indexPath];
+                             rect = [self convertRect:rect toView:self.superview];
                              self.draggingView.transform = CGAffineTransformIdentity;
-                             self.draggingView.frame = CGRectOffset(self.draggingView.bounds, rect.origin.x, rect.origin.y);
+                             self.draggingView.frame = rect;
                          } completion:^(BOOL finished) {
                              [UIView animateWithDuration:0.2 animations:^{
                                  self.draggingView.alpha = 0;
@@ -278,7 +274,6 @@
 
 
 - (void)updateCurrentLocation:(UILongPressGestureRecognizer *)gesture {
-    
     NSIndexPath *indexPath  = nil;
     CGPoint location = CGPointZero;
     
@@ -304,28 +299,26 @@
 }
 
 - (void)scrollTableWithCell:(NSTimer *)timer {
-    UILongPressGestureRecognizer *gesture = [timer.userInfo objectForKey:@"gesture"];
-    CGPoint location  = [gesture locationInView:self];
-    
-    CGPoint currentOffset = self.contentOffset;
-    CGPoint newOffset = CGPointMake(currentOffset.x, currentOffset.y + self.scrollRate);
-
-    if (newOffset.y < -self.contentInset.top) {
-        newOffset.y = -self.contentInset.top;
-    } else if (self.contentSize.height < self.frame.size.height) {
-        newOffset = currentOffset;
-    } else if (newOffset.y > self.contentSize.height - self.frame.size.height) {
-        newOffset.y = self.contentSize.height - self.frame.size.height;
-    }
-    if (!CGPointEqualToPoint(newOffset, currentOffset))
+    if (self.scrollRate != 0)
     {
-        [self setContentOffset:newOffset];
+        CGPoint currentOffset = self.contentOffset;
+        CGPoint newOffset = CGPointMake(currentOffset.x, currentOffset.y + self.scrollRate);
         
-        if ([self locationIsWithinBounds:location]) {
-            self.draggingView.center = CGPointMake(self.center.x, location.y);
+        if (newOffset.y < -self.contentInset.top) {
+            newOffset.y = -self.contentInset.top;
+        } else if (self.contentSize.height < self.frame.size.height) {
+            newOffset = currentOffset;
+        } else if (newOffset.y > self.contentSize.height - self.frame.size.height) {
+            newOffset.y = self.contentSize.height - self.frame.size.height;
         }
-        
-        [self updateCurrentLocation:gesture];
+        if (!CGPointEqualToPoint(newOffset, currentOffset))
+        {
+            [self setContentOffset:newOffset];
+            self.draggingView.center = [self locationWithinBounds:self.draggingView.center];
+
+            UILongPressGestureRecognizer *gesture = [timer.userInfo objectForKey:@"gesture"];
+            [self updateCurrentLocation:gesture];
+        }
     }
 }
 
