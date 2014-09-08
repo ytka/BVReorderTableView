@@ -24,10 +24,11 @@
 #import "BVReorderTableView.h"
 #import <QuartzCore/QuartzCore.h>
 
-@interface BVReorderTableView ()
+
+@interface BVReorderTableView () <UIGestureRecognizerDelegate>
 
 @property (nonatomic, strong) UILongPressGestureRecognizer *longPress;
-@property (nonatomic, strong) CADisplayLink *scrollDisplayLink;
+@property (nonatomic, strong) NSTimer *scrollingTimer;
 @property (nonatomic, assign) CGFloat scrollRate;
 @property (nonatomic, strong) NSIndexPath *currentLocationIndexPath;
 @property (nonatomic, strong) NSIndexPath *initialIndexPath;
@@ -45,17 +46,6 @@
 
 
 @implementation BVReorderTableView
-
-@dynamic delegate, canReorder;
-@synthesize longPress;
-@synthesize scrollDisplayLink;
-@synthesize scrollRate;
-@synthesize currentLocationIndexPath;
-@synthesize draggingView;
-@synthesize savedObject;
-@synthesize draggingRowHeight;
-@synthesize draggingViewOpacity;
-@synthesize initialIndexPath;
 
 - (id)init {
     return [self initWithFrame:CGRectZero];
@@ -83,38 +73,46 @@
 
 
 - (void)initialize {
-    longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)];
-    [self addGestureRecognizer:longPress];
+    self.longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)];
+    self.longPress.delegate = self;
+    [self addGestureRecognizer:self.longPress];
     
-    self.canReorder = YES;
-    self.draggingViewOpacity = 1.0;
+    self.canReorderRows = YES;
 }
 
 
-- (void)setCanReorder:(BOOL)canReorder {
-    canReorder = canReorder;
-    longPress.enabled = canReorder;
+- (void)setCanReorderRows:(BOOL)canReorderRows {
+    _canReorderRows = canReorderRows;
+    self.longPress.enabled = canReorderRows;
 }
 
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    BOOL shouldBegin = YES;
+    if (gestureRecognizer == self.longPress)
+    {
+        shouldBegin = self.canReorderRows;
+        if ([self.delegate respondsToSelector:@selector(tableViewCanReorderRows:)])
+        {
+            shouldBegin = shouldBegin && [self.delegate tableViewCanReorderRows:self];
+        }
+    }
+    return shouldBegin;
+}
 
 - (void)longPress:(UILongPressGestureRecognizer *)gesture {
-    
     CGPoint location = [gesture locationInView:self];
     NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
     
-    int sections = [self numberOfSections];
+    NSInteger sections = [self numberOfSections];
     int rows = 0;
     for(int i = 0; i < sections; i++) {
         rows += [self numberOfRowsInSection:i];
     }
     
     // get out of here if the long press was not on a valid row or our table is empty
-    // or the dataSource tableView:canMoveRowAtIndexPath: doesn't allow moving the row
     if (rows == 0 || (gesture.state == UIGestureRecognizerStateBegan && indexPath == nil) ||
-        (gesture.state == UIGestureRecognizerStateEnded && self.currentLocationIndexPath == nil) ||
-        (gesture.state == UIGestureRecognizerStateBegan &&
-         [self.dataSource respondsToSelector:@selector(tableView:canMoveRowAtIndexPath:)] &&
-         indexPath && ![self.dataSource tableView:self canMoveRowAtIndexPath:indexPath])) {
+        (gesture.state == UIGestureRecognizerStateEnded && self.currentLocationIndexPath == nil)) {
         [self cancelGesture];
         return;
     }
@@ -135,59 +133,54 @@
         UIGraphicsEndImageContext();
         
         // create and image view that we will drag around the screen
-        if (!draggingView) {
-            draggingView = [[UIImageView alloc] initWithImage:cellImage];
-            [self addSubview:draggingView];
+        if (!self.draggingView) {
+            self.draggingView = [[UIImageView alloc] initWithImage:cellImage];
+            [self addSubview:self.draggingView];
             CGRect rect = [self rectForRowAtIndexPath:indexPath];
-            draggingView.frame = CGRectOffset(draggingView.bounds, rect.origin.x, rect.origin.y);
+            self.draggingView.frame = CGRectOffset(self.draggingView.bounds, rect.origin.x, rect.origin.y);
             
             // add drop shadow to image and lower opacity
-            draggingView.layer.masksToBounds = NO;
-            draggingView.layer.shadowColor = [[UIColor blackColor] CGColor];
-            draggingView.layer.shadowOffset = CGSizeMake(0, 0);
-            draggingView.layer.shadowRadius = 4.0;
-            draggingView.layer.shadowOpacity = 0.7;
-            draggingView.layer.opacity = self.draggingViewOpacity;
+            self.draggingView.layer.masksToBounds = NO;
+            self.draggingView.layer.shadowColor = [[UIColor blackColor] CGColor];
+            self.draggingView.layer.shadowOffset = CGSizeMake(0, 0);
+            self.draggingView.layer.shadowRadius = 4.0;
+            self.draggingView.layer.shadowOpacity = 0.7;
+            //draggingView.layer.opacity = 0.8;
             
             // zoom image towards user
             [UIView beginAnimations:@"zoom" context:nil];
-            draggingView.transform = CGAffineTransformMakeScale(1.1, 1.1);
-            draggingView.center = CGPointMake(self.center.x, location.y);
+            self.draggingView.transform = CGAffineTransformMakeScale(1.1, 1.1);
+            self.draggingView.center = CGPointMake(self.center.x, location.y);
             [UIView commitAnimations];
         }
         
         [self beginUpdates];
         [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
         [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
-        
-        if ([self.delegate respondsToSelector:@selector(saveObjectAndInsertBlankRowAtIndexPath:)]) {
-            self.savedObject = [self.delegate saveObjectAndInsertBlankRowAtIndexPath:indexPath];
-        }
-        else {
-            NSLog(@"saveObjectAndInsertBlankRowAtIndexPath: is not implemented");
-        }
-        
+        self.savedObject = [self.delegate tableView:self willMoveRowAtIndexPath:indexPath];
         self.currentLocationIndexPath = indexPath;
         self.initialIndexPath = indexPath;
         [self endUpdates];
         
         // enable scrolling for cell
-        self.scrollDisplayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(scrollTableWithCell:)];
-        [self.scrollDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];        
+        NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:gesture forKey:@"gesture"];
+        self.scrollingTimer = [NSTimer timerWithTimeInterval:1/8 target:self selector:@selector(scrollTableWithCell:) userInfo:userInfo repeats:YES];
+        [[NSRunLoop mainRunLoop] addTimer:self.scrollingTimer forMode:NSDefaultRunLoopMode];
+        
     }
     // dragging
     else if (gesture.state == UIGestureRecognizerStateChanged) {
         // update position of the drag view
         // don't let it go past the top or the bottom too far
         if (location.y >= 0 && location.y <= self.contentSize.height + 50) {
-            draggingView.center = CGPointMake(self.center.x, location.y);
+            self.draggingView.center = CGPointMake(self.center.x, location.y);
         }
         
         CGRect rect = self.bounds;
         // adjust rect for content inset as we will use it below for calculating scroll zones
         rect.size.height -= self.contentInset.top;
         CGPoint location = [gesture locationInView:self];
-        
+
         [self updateCurrentLocation:gesture];
         
         // tell us if we should scroll and which direction
@@ -211,41 +204,34 @@
         
         NSIndexPath *indexPath = self.currentLocationIndexPath;
         
-        // remove scrolling CADisplayLink
-        [self.scrollDisplayLink invalidate];
-        self.scrollDisplayLink = nil;
+        // remove scrolling timer
+        [self.scrollingTimer invalidate];
+        self.scrollingTimer = nil;
         self.scrollRate = 0;
         
         // animate the drag view to the newly hovered cell
-        [UIView animateWithDuration:0.3
-                         animations:^{
-                             CGRect rect = [self rectForRowAtIndexPath:indexPath];
-                             draggingView.transform = CGAffineTransformIdentity;
-                             draggingView.frame = CGRectOffset(draggingView.bounds, rect.origin.x, rect.origin.y);
-                         } completion:^(BOOL finished) {
-                             [draggingView removeFromSuperview];
-                             
-                             [self beginUpdates];
-                             [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
-                             [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
-                             
-                             if ([self.delegate respondsToSelector:@selector(finishReorderingWithObject:atIndexPath:)])
-                             {
-                                 [self.delegate finishReorderingWithObject:self.savedObject atIndexPath:indexPath];
-                             }
-                             else {
-                                 NSLog(@"finishReorderingWithObject:atIndexPath: is not implemented");
-                             }
-                             [self endUpdates];
-                             
-                             // reload the rows that were affected just to be safe
-                             NSMutableArray *visibleRows = [[self indexPathsForVisibleRows] mutableCopy];
-                             [visibleRows removeObject:indexPath];
-                             [self reloadRowsAtIndexPaths:visibleRows withRowAnimation:UITableViewRowAnimationNone];
-                             
-                             self.currentLocationIndexPath = nil;
-                             self.draggingView = nil;
-                         }];
+        [UIView animateWithDuration:0.2
+         animations:^{
+             CGRect rect = [self rectForRowAtIndexPath:indexPath];
+             self.draggingView.transform = CGAffineTransformIdentity;
+             self.draggingView.frame = CGRectOffset(self.draggingView.bounds, rect.origin.x, rect.origin.y);
+         } completion:^(BOOL finished) {
+             [self.draggingView removeFromSuperview];
+             
+             [self beginUpdates];
+             [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
+             [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
+             [self.delegate tableView:self didFinishReorderingWithObject:self.savedObject atIndexPath:indexPath];
+             [self endUpdates];
+             
+             // reload the rows that were affected just to be safe
+             NSMutableArray *visibleRows = [[self indexPathsForVisibleRows] mutableCopy];
+             [visibleRows removeObject:indexPath];
+             [self reloadRowsAtIndexPaths:visibleRows withRowAnimation:UITableViewRowAnimationNone];
+             
+             self.currentLocationIndexPath = nil;
+             self.draggingView = nil;
+         }];
     }
 }
 
@@ -270,46 +256,40 @@
         [self beginUpdates];
         [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:self.currentLocationIndexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
         [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-        
-        if ([self.delegate respondsToSelector:@selector(moveRowAtIndexPath:toIndexPath:)]) {
-            [self.delegate moveRowAtIndexPath:self.currentLocationIndexPath toIndexPath:indexPath];
-        }
-        else {
-            NSLog(@"moveRowAtIndexPath:toIndexPath: is not implemented");
-        }
-        
+        [self.delegate tableView:self didMoveRowAtIndexPath:self.currentLocationIndexPath toIndexPath:indexPath];
         self.currentLocationIndexPath = indexPath;
         [self endUpdates];
     }
 }
 
-- (void)scrollTableWithCell:(NSTimer *)timer {    
-    UILongPressGestureRecognizer *gesture = self.longPress;
+- (void)scrollTableWithCell:(NSTimer *)timer {
+
+    UILongPressGestureRecognizer *gesture = [timer.userInfo objectForKey:@"gesture"];
     CGPoint location  = [gesture locationInView:self];
     
     CGPoint currentOffset = self.contentOffset;
-    CGPoint newOffset = CGPointMake(currentOffset.x, currentOffset.y + self.scrollRate * 10);
-    
+    CGPoint newOffset = CGPointMake(currentOffset.x, currentOffset.y + self.scrollRate);
+
     if (newOffset.y < -self.contentInset.top) {
         newOffset.y = -self.contentInset.top;
-    } else if (self.contentSize.height + self.contentInset.bottom < self.frame.size.height) {
+    } else if (self.contentSize.height < self.frame.size.height) {
         newOffset = currentOffset;
-    } else if (newOffset.y > (self.contentSize.height + self.contentInset.bottom) - self.frame.size.height) {
-        newOffset.y = (self.contentSize.height + self.contentInset.bottom) - self.frame.size.height;
+    } else if (newOffset.y > self.contentSize.height - self.frame.size.height) {
+        newOffset.y = self.contentSize.height - self.frame.size.height;
+    } else {
     }
-    
     [self setContentOffset:newOffset];
     
     if (location.y >= 0 && location.y <= self.contentSize.height + 50) {
-        draggingView.center = CGPointMake(self.center.x, location.y);
+        self.draggingView.center = CGPointMake(self.center.x, location.y);
     }
     
     [self updateCurrentLocation:gesture];
 }
 
 - (void)cancelGesture {
-    longPress.enabled = NO;
-    longPress.enabled = YES;
+    self.longPress.enabled = NO;
+    self.longPress.enabled = YES;
 }
 
 @end
