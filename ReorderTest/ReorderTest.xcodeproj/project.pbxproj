@@ -152,7 +152,7 @@
 		4551781216EA9A4E003F168E /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0450;
+				LastUpgradeCheck = 0510;
 				ORGANIZATIONNAME = "Ben Vogelzang";
 			};
 			buildConfigurationList = 4551781516EA9A4E003F168E /* Build configuration list for PBXProject "ReorderTest" */;
@@ -246,6 +246,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 6.0;
+				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 			};
 			name = Debug;

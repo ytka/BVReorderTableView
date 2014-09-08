@@ -10,7 +10,7 @@
 #import "DetailViewController.h"
 #import "BVReorderTableView.h"
 
-@interface MasterViewController () {
+@interface MasterViewController () < BVReorderTableViewDelegate > {
     NSMutableArray *_objects;
 }
 @end
@@ -113,7 +113,7 @@
 
 // This method is called when starting the re-ording process. You insert a blank row object into your
 // data source and return the object you want to save for later. This method is only called once.
-- (id)saveObjectAndInsertBlankRowAtIndexPath:(NSIndexPath *)indexPath {
+- (id)tableView:(BVReorderTableView *)tableView willMoveRowAtIndexPath:(NSIndexPath *)indexPath {
     id object = [_objects objectAtIndex:indexPath.row];
     [_objects replaceObjectAtIndex:indexPath.row withObject:@"DUMMY"];
     return object;
@@ -122,7 +122,7 @@
 // This method is called when the selected row is dragged to a new position. You simply update your
 // data source to reflect that the rows have switched places. This can be called multiple times
 // during the reordering process.
-- (void)moveRowAtIndexPath:(NSIndexPath *)fromIndexPath toIndexPath:(NSIndexPath *)toIndexPath {
+- (void)tableView:(UITableView *)tableView didMoveRowAtIndexPath:(NSIndexPath *)fromIndexPath toIndexPath:(NSIndexPath *)toIndexPath {
     id object = [_objects objectAtIndex:fromIndexPath.row];
     [_objects removeObjectAtIndex:fromIndexPath.row];
     [_objects insertObject:object atIndex:toIndexPath.row];
@@ -132,7 +132,7 @@
 // This method is called when the selected row is released to its new position. The object is the same
 // object you returned in saveObjectAndInsertBlankRowAtIndexPath:. Simply update the data source so the
 // object is in its new position. You should do any saving/cleanup here.
-- (void)finishReorderingWithObject:(id)object atIndexPath:(NSIndexPath *)indexPath; {
+- (void)tableView:(BVReorderTableView *)tableView didFinishReorderingWithObject:(id)object atIndexPath:(NSIndexPath *)indexPath {
     [_objects replaceObjectAtIndex:indexPath.row withObject:object];
     // do any additional cleanup here
 }
