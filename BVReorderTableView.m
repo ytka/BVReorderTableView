@@ -89,7 +89,6 @@
     self.longPress.enabled = canReorderRows;
 }
 
-
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
     BOOL shouldBegin = YES;
     if (gestureRecognizer == self.longPress)
@@ -123,6 +122,7 @@
 }
 
 - (void)longPress:(UILongPressGestureRecognizer *)gesture {
+    
     CGPoint location = [gesture locationInView:self];
     CGPoint locationDelta = CGPointMake(location.x - self.previousLocation.x, location.y - self.previousLocation.y);
     self.previousLocation = location;
@@ -130,8 +130,8 @@
     NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
     
     NSInteger sections = [self numberOfSections];
-    int rows = 0;
-    for(int i = 0; i < sections; i++) {
+    NSInteger rows = 0;
+    for(NSInteger i = 0; i < sections; i++) {
         rows += [self numberOfRowsInSection:i];
     }
     
@@ -153,6 +153,7 @@
         
         // make an image from the pressed tableview cell
         UIGraphicsBeginImageContextWithOptions(cell.bounds.size, NO, 0);
+        cell.highlighted = YES;
         [cell.layer renderInContext:UIGraphicsGetCurrentContext()];
         UIImage *cellImage = UIGraphicsGetImageFromCurrentImageContext();
         UIGraphicsEndImageContext();
@@ -168,9 +169,9 @@
             self.draggingView.layer.masksToBounds = NO;
             self.draggingView.layer.shadowColor = [[UIColor blackColor] CGColor];
             self.draggingView.layer.shadowOffset = CGSizeMake(0, 0);
-            self.draggingView.layer.shadowRadius = 4.0;
-            self.draggingView.layer.shadowOpacity = 0.7;
-            //draggingView.layer.opacity = 0.8;
+            self.draggingView.layer.shadowRadius = 6.0;
+            self.draggingView.layer.shadowOpacity = 0.6;
+            self.draggingView.layer.shadowPath = [UIBezierPath bezierPathWithRect:self.draggingView.bounds].CGPath;
             
             // zoom image towards user
             [UIView beginAnimations:@"zoom" context:nil];
@@ -234,7 +235,7 @@
     // dropped
     else if (gesture.state == UIGestureRecognizerStateEnded) {
         
-        NSIndexPath *indexPath = self.currentLocationIndexPath;
+        indexPath = self.currentLocationIndexPath;
         
         // remove scrolling timer
         [self.scrollingTimer invalidate];
@@ -243,13 +244,17 @@
         
         // animate the drag view to the newly hovered cell
         [UIView animateWithDuration:0.2
-         animations:^{
-             CGRect rect = [self rectForRowAtIndexPath:indexPath];
-             self.draggingView.transform = CGAffineTransformIdentity;
-             self.draggingView.frame = CGRectOffset(self.draggingView.bounds, rect.origin.x, rect.origin.y);
-         } completion:^(BOOL finished) {
-             [self.draggingView removeFromSuperview];
-             
+                         animations:^{
+                             CGRect rect = [self rectForRowAtIndexPath:indexPath];
+                             self.draggingView.transform = CGAffineTransformIdentity;
+                             self.draggingView.frame = CGRectOffset(self.draggingView.bounds, rect.origin.x, rect.origin.y);
+                         } completion:^(BOOL finished) {
+                             [UIView animateWithDuration:0.2 animations:^{
+                                 self.draggingView.alpha = 0;
+                             } completion:^(BOOL finished2) {
+                                 [self.draggingView removeFromSuperview];
+                             }];
+                             
              [self beginUpdates];
              [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
              [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
@@ -260,6 +265,10 @@
              NSMutableArray *visibleRows = [[self indexPathsForVisibleRows] mutableCopy];
              [visibleRows removeObject:indexPath];
              [self reloadRowsAtIndexPaths:visibleRows withRowAnimation:UITableViewRowAnimationNone];
+                             
+             UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
+             cell.highlighted = YES;
+             [cell setHighlighted:NO animated:YES];
              
              self.currentLocationIndexPath = nil;
              self.draggingView = nil;
@@ -295,7 +304,6 @@
 }
 
 - (void)scrollTableWithCell:(NSTimer *)timer {
-
     UILongPressGestureRecognizer *gesture = [timer.userInfo objectForKey:@"gesture"];
     CGPoint location  = [gesture locationInView:self];
     
