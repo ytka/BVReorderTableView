@@ -35,6 +35,9 @@
 @property (nonatomic, strong) UIImageView *draggingView;
 @property (nonatomic, retain) id savedObject;
 
+@property (nonatomic, assign) CGPoint previousLocation;
+
+
 - (void)initialize;
 - (void)longPress:(UILongPressGestureRecognizer *)gesture;
 - (void)updateCurrentLocation:(UILongPressGestureRecognizer *)gesture;
@@ -100,8 +103,30 @@
     return shouldBegin;
 }
 
+- (BOOL)locationIsWithinBounds:(CGPoint)location
+{
+    return (location.y >= self.draggingView.bounds.size.height / 2
+            && location.y <= self.contentSize.height - self.draggingView.bounds.size.height / 2);
+}
+
+- (CGPoint)locationWithinBounds:(CGPoint)location
+{
+    if (location.y < self.draggingView.bounds.size.height / 2)
+    {
+        location.y = self.draggingView.bounds.size.height / 2;
+    }
+    else if (location.y > self.contentSize.height - self.draggingView.bounds.size.height / 2)
+    {
+        location.y = self.contentSize.height - self.draggingView.bounds.size.height / 2;
+    }
+    return location;
+}
+
 - (void)longPress:(UILongPressGestureRecognizer *)gesture {
     CGPoint location = [gesture locationInView:self];
+    CGPoint locationDelta = CGPointMake(location.x - self.previousLocation.x, location.y - self.previousLocation.y);
+    self.previousLocation = location;
+    
     NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
     
     NSInteger sections = [self numberOfSections];
@@ -150,7 +175,7 @@
             // zoom image towards user
             [UIView beginAnimations:@"zoom" context:nil];
             self.draggingView.transform = CGAffineTransformMakeScale(1.1, 1.1);
-            self.draggingView.center = CGPointMake(self.center.x, location.y);
+            self.draggingView.center = CGPointMake(self.center.x, self.draggingView.center.y);
             [UIView commitAnimations];
         }
         
@@ -164,23 +189,28 @@
         
         // enable scrolling for cell
         NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:gesture forKey:@"gesture"];
-        self.scrollingTimer = [NSTimer timerWithTimeInterval:1/8 target:self selector:@selector(scrollTableWithCell:) userInfo:userInfo repeats:YES];
+        self.scrollingTimer = [NSTimer timerWithTimeInterval:1/8
+                                                      target:self
+                                                    selector:@selector(scrollTableWithCell:)
+                                                    userInfo:userInfo
+                                                     repeats:YES];
         [[NSRunLoop mainRunLoop] addTimer:self.scrollingTimer forMode:NSDefaultRunLoopMode];
         
     }
     // dragging
     else if (gesture.state == UIGestureRecognizerStateChanged) {
+        CGPoint newLocation = self.draggingView.center;
+        newLocation.y += locationDelta.y;
         // update position of the drag view
         // don't let it go past the top or the bottom too far
-        if (location.y >= 0 && location.y <= self.contentSize.height + 50) {
-            self.draggingView.center = CGPointMake(self.center.x, location.y);
-        }
+        newLocation = [self locationWithinBounds:newLocation];
+        // NSLog(@"Update: %f %f", location.y, self.draggingView.center.y);
+        self.draggingView.center = newLocation;
         
         CGRect rect = self.bounds;
         // adjust rect for content inset as we will use it below for calculating scroll zones
         rect.size.height -= self.contentInset.top;
-        CGPoint location = [gesture locationInView:self];
-
+        
         [self updateCurrentLocation:gesture];
         
         // tell us if we should scroll and which direction
@@ -198,6 +228,8 @@
         else {
             self.scrollRate = 0;
         }
+
+        // NSLog(@"  Update: %f %f", location.y, self.draggingView.center.y);
     }
     // dropped
     else if (gesture.state == UIGestureRecognizerStateEnded) {
@@ -276,15 +308,17 @@
         newOffset = currentOffset;
     } else if (newOffset.y > self.contentSize.height - self.frame.size.height) {
         newOffset.y = self.contentSize.height - self.frame.size.height;
-    } else {
     }
-    [self setContentOffset:newOffset];
-    
-    if (location.y >= 0 && location.y <= self.contentSize.height + 50) {
-        self.draggingView.center = CGPointMake(self.center.x, location.y);
+    if (!CGPointEqualToPoint(newOffset, currentOffset))
+    {
+        [self setContentOffset:newOffset];
+        
+        if ([self locationIsWithinBounds:location]) {
+            self.draggingView.center = CGPointMake(self.center.x, location.y);
+        }
+        
+        [self updateCurrentLocation:gesture];
     }
-    
-    [self updateCurrentLocation:gesture];
 }
 
 - (void)cancelGesture {
