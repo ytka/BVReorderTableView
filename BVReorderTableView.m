@@ -28,7 +28,7 @@
 @interface BVReorderTableView () <UIGestureRecognizerDelegate>
 
 @property (nonatomic, strong) UILongPressGestureRecognizer *longPress;
-@property (nonatomic, strong) NSTimer *scrollingTimer;
+@property (nonatomic, strong) CADisplayLink *scrollingTimer;
 @property (nonatomic, assign) CGFloat scrollRate;
 @property (nonatomic, strong) NSIndexPath *currentLocationIndexPath;
 @property (nonatomic, strong) NSIndexPath *initialIndexPath;
@@ -189,13 +189,9 @@
         [self endUpdates];
         
         // enable scrolling for cell
-        NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:gesture forKey:@"gesture"];
-        self.scrollingTimer = [NSTimer timerWithTimeInterval:1/8
-                                                      target:self
-                                                    selector:@selector(scrollTableWithCell:)
-                                                    userInfo:userInfo
-                                                     repeats:YES];
-        [[NSRunLoop mainRunLoop] addTimer:self.scrollingTimer forMode:NSDefaultRunLoopMode];
+        self.scrollingTimer = [CADisplayLink displayLinkWithTarget:self selector:@selector(scrollTableWithCell:)];
+        [self.scrollingTimer addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+        self.scrollingTimer.frameInterval = 1;
     }
     // dragging
     else if (gesture.state == UIGestureRecognizerStateChanged) {
@@ -228,7 +224,7 @@
             self.scrollRate = 0;
         }
 
-        // NSLog(@"  Update: %f %f", location.y, self.draggingView.center.y);
+        // NSLog(@"  scrollrate: %f", self.scrollRate);
     }
     // dropped
     else if (gesture.state == UIGestureRecognizerStateEnded) {
@@ -301,11 +297,15 @@
     }
 }
 
-- (void)scrollTableWithCell:(NSTimer *)timer {
+- (void)scrollTableWithCell:(CADisplayLink *)timer {
     if (self.scrollRate != 0)
     {
         CGPoint currentOffset = self.contentOffset;
-        CGPoint newOffset = CGPointMake(currentOffset.x, currentOffset.y + self.scrollRate);
+        const CGFloat scrollRateMultiplier = 18;
+        CGPoint newOffset = CGPointMake(currentOffset.x, currentOffset.y + self.scrollRate * scrollRateMultiplier);
+        
+        // NSLog(@" scrollRate: %f %f -> %f", self.scrollRate, timeDelta, self.scrollRate * scrollRateMultiplier * timeDelta);
+        // NSLog(@" cO: %@,  nO: %@", NSStringFromCGPoint(currentOffset), NSStringFromCGPoint(newOffset));
         
         if (newOffset.y < -self.contentInset.top) {
             newOffset.y = -self.contentInset.top;
@@ -319,8 +319,7 @@
             [self setContentOffset:newOffset];
             self.draggingView.center = [self locationWithinBounds:self.draggingView.center];
 
-            UILongPressGestureRecognizer *gesture = [timer.userInfo objectForKey:@"gesture"];
-            [self updateCurrentLocation:gesture];
+            [self updateCurrentLocation:self.longPress];
         }
     }
 }
