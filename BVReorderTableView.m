@@ -36,15 +36,15 @@
 @property (nonatomic, retain) id savedObject;
 
 @property (nonatomic, assign) CGPoint previousSuperviewLocation;
+@property (nonatomic, assign) BOOL animatedCancel;
 
-- (void)initialize;
+- (void)commonInit;
 - (void)longPress:(UILongPressGestureRecognizer *)gesture;
 - (void)updateCurrentLocation:(UILongPressGestureRecognizer *)gesture;
 - (void)scrollTableWithCell:(NSTimer *)timer;
 - (void)cancelGesture;
 
 @end
-
 
 
 @implementation BVReorderTableView
@@ -60,7 +60,7 @@
 - (id)initWithCoder:(NSCoder *)coder {
     self = [super initWithCoder:coder];
     if (self) {
-        [self initialize];
+        [self commonInit];
     }
     return self;
 }
@@ -68,18 +68,24 @@
 - (id)initWithFrame:(CGRect)frame style:(UITableViewStyle)style {
     self = [super initWithFrame:frame style:style];
     if (self) {
-        [self initialize];
+        [self commonInit];
     }
     return self;
 }
 
 
-- (void)initialize {
+- (void)commonInit {
+    self.animatedCancel = YES;
     self.longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)];
     self.longPress.delegate = self;
     [self addGestureRecognizer:self.longPress];
     
     self.canReorderRows = YES;
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(cancelGesture)
+                                                 name:UIApplicationWillResignActiveNotification
+                                               object:nil];
 }
 
 
@@ -104,8 +110,7 @@
     return shouldBegin;
 }
 
-- (CGPoint)locationWithinBounds:(CGPoint)location
-{
+- (CGPoint)locationWithinBounds:(CGPoint)location {
     location = [self convertPoint:location fromView:self.superview];
     if (location.y < self.draggingView.bounds.size.height / 2)
     {
@@ -229,48 +234,87 @@
     // dropped
     else if (gesture.state == UIGestureRecognizerStateEnded) {
         
-        indexPath = self.currentLocationIndexPath;
+        [self invalidateScrollTimer];
+        [self finishCellDraggingAtIndexPath:self.currentLocationIndexPath animated:YES];
         
-        // remove scrolling timer
-        [self.scrollingTimer invalidate];
-        self.scrollingTimer = nil;
-        self.scrollRate = 0;
+    } else if (gesture.state == UIGestureRecognizerStateCancelled) {
         
-        // animate the drag view to the newly hovered cell
-        [UIView animateWithDuration:0.2
-                         animations:^{
-                             CGRect rect = [self rectForRowAtIndexPath:indexPath];
-                             rect = [self convertRect:rect toView:self.superview];
-                             self.draggingView.transform = CGAffineTransformIdentity;
-                             self.draggingView.frame = rect;
-                         } completion:^(BOOL finished) {
-                             [UIView animateWithDuration:0.2 animations:^{
-                                 self.draggingView.alpha = 0;
-                             } completion:^(BOOL finished2) {
-                                 [self.draggingView removeFromSuperview];
-                             }];
-                             
-             [self beginUpdates];
-             [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
-             [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
-             [self.delegate tableView:self didFinishReorderingWithObject:self.savedObject atIndexPath:indexPath];
-             [self endUpdates];
-             
-             // reload the rows that were affected just to be safe
-             NSMutableArray *visibleRows = [[self indexPathsForVisibleRows] mutableCopy];
-             [visibleRows removeObject:indexPath];
-             [self reloadRowsAtIndexPaths:visibleRows withRowAnimation:UITableViewRowAnimationNone];
-                             
-             UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
-             cell.highlighted = YES;
-             [cell setHighlighted:NO animated:YES];
-             
-             self.currentLocationIndexPath = nil;
-             self.draggingView = nil;
-         }];
+        [self invalidateScrollTimer];
+        [self cancelCellDraggingWithAnimation:self.animatedCancel];
+        [self finishCellDraggingAtIndexPath:self.currentLocationIndexPath animated:self.animatedCancel];
     }
 }
 
+- (void)invalidateScrollTimer {
+    // remove scrolling timer
+    [self.scrollingTimer invalidate];
+    self.scrollingTimer = nil;
+    self.scrollRate = 0;
+}
+
+- (void)cancelCellDraggingWithAnimation:(BOOL)animation {
+    // Cancel
+    UITableViewRowAnimation rowAnimation = animation ? UITableViewRowAnimationAutomatic : UITableViewRowAnimationNone;
+    
+    [self beginUpdates];
+    [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:self.currentLocationIndexPath] withRowAnimation:rowAnimation];
+    [self insertRowsAtIndexPaths:[NSArray arrayWithObject:self.initialIndexPath] withRowAnimation:rowAnimation];
+    [self.delegate tableView:self didMoveRowAtIndexPath:self.currentLocationIndexPath toIndexPath:self.initialIndexPath];
+    self.currentLocationIndexPath = self.initialIndexPath;
+    [self endUpdates];
+}
+
+- (void)finishCellDraggingAtIndexPath:(NSIndexPath *)indexPath animated:(BOOL)animated {
+    void (^animationBlock)(void) = ^void(void)
+    {
+        CGRect rect = [self rectForRowAtIndexPath:indexPath];
+        rect = [self convertRect:rect toView:self.superview];
+        self.draggingView.transform = CGAffineTransformIdentity;
+        self.draggingView.frame = rect;
+    };
+
+    void (^completionBlock)(void) = ^void(void)
+    {
+        NSTimeInterval duration = animated ? 0.2 : 0;
+        [UIView animateWithDuration:duration animations:^{
+            self.draggingView.alpha = 0;
+        } completion:^(BOOL finishedB) {
+            [self.draggingView removeFromSuperview];
+        }];
+        
+        [self beginUpdates];
+        [self deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
+        [self insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] withRowAnimation:UITableViewRowAnimationNone];
+        [self.delegate tableView:self didFinishReorderingWithObject:self.savedObject atIndexPath:indexPath];
+        [self endUpdates];
+        
+        // reload the rows that were affected just to be safe
+        NSMutableArray *visibleRows = [[self indexPathsForVisibleRows] mutableCopy];
+        [visibleRows removeObject:indexPath];
+        [self reloadRowsAtIndexPaths:visibleRows withRowAnimation:UITableViewRowAnimationNone];
+        
+        UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
+        cell.highlighted = YES;
+        [cell setHighlighted:NO animated:YES];
+        
+        self.currentLocationIndexPath = nil;
+        self.draggingView = nil;
+    };
+    
+    if (animated)
+    {
+        // animate the drag view to the newly hovered cell
+        [UIView animateWithDuration:0.2
+                         animations:^{
+                             animationBlock();
+                         } completion:^(BOOL finished) {
+                             completionBlock();
+                         }];
+    } else {
+        animationBlock();
+        completionBlock();
+    }
+}
 
 - (void)updateCurrentLocation:(UILongPressGestureRecognizer *)gesture {
     NSIndexPath *indexPath  = nil;
@@ -327,6 +371,15 @@
 - (void)cancelGesture {
     self.longPress.enabled = NO;
     self.longPress.enabled = YES;
+}
+
+- (void)cancelReorder {
+    [self cancelReorderWithAnimation:YES];
+}
+
+- (void)cancelReorderWithAnimation:(BOOL)animated {
+    self.animatedCancel = animated;
+    [self cancelGesture];
 }
 
 @end

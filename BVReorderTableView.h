@@ -57,4 +57,8 @@
 @property (nonatomic, assign) CGFloat draggingRowHeight;
 @property (nonatomic, assign) BOOL canReorderRows;
 
+// Call this to cancel an in-progress cell reordering operation
+- (void)cancelReorder;
+- (void)cancelReorderWithAnimation:(BOOL)animated;
+
 @end
