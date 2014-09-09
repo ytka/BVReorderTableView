@@ -92,10 +92,13 @@
     BOOL shouldBegin = YES;
     if (gestureRecognizer == self.longPress)
     {
+        CGPoint location = [gestureRecognizer locationInView:self];
+        NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
+
         shouldBegin = self.canReorderRows;
-        if ([self.delegate respondsToSelector:@selector(tableViewCanReorderRows:)])
+        if ([self.delegate respondsToSelector:@selector(tableView:canReorderRowAtIndexPath:)])
         {
-            shouldBegin = shouldBegin && [self.delegate tableViewCanReorderRows:self];
+            shouldBegin = shouldBegin && [self.delegate tableView:self canReorderRowAtIndexPath:indexPath];
         }
     }
     return shouldBegin;

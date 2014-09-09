@@ -46,7 +46,7 @@
 
 @optional
 
-- (BOOL)tableViewCanReorderRows:(BVReorderTableView *)tableView;
+- (BOOL)tableView:(BVReorderTableView *)tableView canReorderRowAtIndexPath:(NSIndexPath *)indexPath;
 
 @end
 
